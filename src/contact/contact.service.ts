@@ -1,22 +1,32 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { CreateContactDto } from './dto/create-contact.dto/create-contact.dto';
 
 @Injectable()
 export class ContactService {
-  private transporter: nodemailer.Transporter;
+  private resend: Resend;
+  private from: string;
+  private to: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST'),
-      port: this.configService.get<number>('SMTP_PORT') || 587,
-      secure: false,
-      auth: {
-        user: this.configService.get<string>('SMTP_USER'),
-        pass: this.configService.get<string>('SMTP_PASS'),
-      },
-    });
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+    if (!apiKey) {
+      throw new Error('RESEND_API_KEY is not set');
+    }
+
+    this.resend = new Resend(apiKey);
+
+    this.from = this.configService.get<string>('CONTACT_FROM') ?? '';
+    this.to = this.configService.get<string>('CONTACT_TO') ?? '';
+
+    if (!this.from) {
+      throw new Error('CONTACT_FROM is not set');
+    }
+
+    if (!this.to) {
+      throw new Error('CONTACT_TO is not set');
+    }
   }
 
   async sendContactEmail(createContactDto: CreateContactDto) {
@@ -24,20 +34,19 @@ export class ContactService {
 
     const lines = [
       `Nombre: ${name}`,
-      `Email: ${email}\n`,
-      number ? `Número: ${number}\n` : null,
-    
-    
-      "Mensaje:",
+      `Email: ${email}`,
+      number ? `Número: ${number}` : null,
+      '',
+      'Mensaje:',
       message,
     ].filter(Boolean);
 
     const text = lines.join('\n');
 
     try {
-      await this.transporter.sendMail({
-        from: `"Portfolio Web" <${this.configService.get<string>('SMTP_USER')}>`,
-        to: this.configService.get<string>('CONTACT_TO'),
+      await this.resend.emails.send({
+        from: this.from,
+        to: this.to,
         subject: `Nuevo mensaje de ${name}`,
         text,
       });
